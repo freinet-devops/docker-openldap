@@ -1,0 +1,7 @@
+dn: cn=module{0},cn=config
+changetype: add
+objectClass: olcModuleList
+objectClass: top
+cn: module{5}
+olcModulePath: /usr/lib/openldap
+olcModuleLoad: {0}back_hdb.so

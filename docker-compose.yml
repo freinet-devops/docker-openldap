@@ -1,0 +1,18 @@
+version: '3.6'
+services:
+  openldap:
+    image: freinet/openldap:test
+    container_name: openldap
+    hostname: openldap
+    restart: always
+    volumes:
+      - ./config/example:/mnt
+      - ./data:/var/lib/openldap
+    env_file:
+      - example.env
+    ports:
+      - "389:389"
+    command: ['run']
+volumes:
+  openldap_data:
+    name: openldap_data

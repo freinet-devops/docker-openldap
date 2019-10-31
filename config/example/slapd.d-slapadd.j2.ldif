@@ -1,0 +1,27 @@
+dn: cn=config
+objectClass: olcGlobal
+cn: config
+olcArgsFile: /var/run/openldap/slapd.args
+olcIdleTimeout: 300
+olcPidFile: /var/run/openldap/slapd.pid
+structuralObjectClass: olcGlobal
+
+dn: cn=schema,cn=config
+objectClass: olcSchemaConfig
+cn: schema
+structuralObjectClass: olcSchemaConfig
+
+dn: olcDatabase={-1}frontend,cn=config
+objectClass: olcDatabaseConfig
+objectClass: olcFrontendConfig
+olcDatabase: {-1}frontend
+structuralObjectClass: olcDatabaseConfig
+
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcAccess: {0}to * by dn.base="gidNumber=0+uidNumber=0,cn=peercred,cn=extern
+ al,cn=auth" manage by * none
+olcRootDN: cn=admin,cn=config
+olcRootPW:: {{ LDIF_REPLACE_ROOT_PW }}
+structuralObjectClass: olcDatabaseConfig

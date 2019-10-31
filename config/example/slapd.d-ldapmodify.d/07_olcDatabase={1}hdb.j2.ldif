@@ -1,0 +1,11 @@
+dn: olcDatabase={1}hdb,cn=config
+changetype: add
+objectClass: olcDatabaseConfig
+objectClass: olcHdbConfig
+olcDatabase: {1}hdb
+olcDbDirectory: /var/lib/openldap/dc=directory,dc=test
+olcSuffix: dc=directory,dc=test
+olcRootDN: cn=admin,dc=directory,dc=test
+olcRootPW:: {{ LDIF_REPLACE_MAIN_DB_PW }}
+olcDbConfig: {0}set_flags DB_LOG_AUTOREMOVE
+olcDbCheckpoint: 1024 10

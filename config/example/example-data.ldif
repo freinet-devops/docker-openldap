@@ -1,0 +1,26 @@
+dn: dc=directory,dc=test
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: directory.test
+dc: directory
+structuralObjectClass: organization
+
+dn: ou=users,dc=directory,dc=test
+objectClass: organizationalUnit
+objectClass: top
+ou: users
+structuralObjectClass: organizationalUnit
+
+dn: uid=testuser,ou=users,dc=directory,dc=test
+mail: testuser@directory.test
+uid: testuser
+givenName: TestUser
+objectClass: inetOrgPerson
+objectClass: person
+objectClass: top
+objectClass: organizationalPerson
+sn: TestUser
+cn: TestUser
+structuralObjectClass: inetOrgPerson
+userPassword:: e1NTSEF9TWx2cGRlZk1BZHB2T3Exbll2azBTYXFPK0pMcnRoNXcK
