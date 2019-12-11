@@ -253,18 +253,29 @@ run(){
 # ENTRYPOINT
 
 helptext(){
-printf "Usage: docker run freinet/openldap {command} {options}\n\
+printf "Usage: docker run freinet/openldap  {command} {options}\n\ or docker exec <container_name> /entrypoint.sh {command}
   commands
     run \$ARGS
-    slapadd_data -l \$LDIF_FILE -b \$DB_NAME
-      - ldif file must be mounted, preferably in /mnt>
-    ldapmodify_config \$PATH_TO_NEW_LDIF_FILES
-      - ldif files must be mounted, preferably in /mnt>
+    add_data -l \$LDIF_FILE -b \$DB_NAME
+      - import an ldif-file into a configured database
+      - uses slapadd, only works when the server is stopped
+      - ldif file must be mounted, preferably in /mnt
+    add_database -b \$DB_NAME -e BACKEND -D \$ROOT_DN -p \$PASSWORD -h \$HASHED_PASSWORD
+      - configure a new database to cn=config and initialize it
+      - DB_NUM in cn=config and DB_BACKEND such as hdb,mdb needed to address entry in cn=config
+    modify_config \$PATH_TO_NEW_LDIF_FILES
+      - modify cn=config with an ldif file
       - do NOT run files that have already run
-    ldapmodify_change_rootpassword -b \$DB_NAME -n \$DB_NUM -e \$BACKEND -p \$PASSWORD -h \$HASHED_PASSWORD
-      - DB_NUM in cn=config and DB_BACKEND such as hdb,mdb needed to address entry in cn=config
-    ldapmodify_add_database -b \$DB_NAME -e BACKEND -D \$ROOT_DN -p \$PASSWORD -h \$HASHED_PASSWORD
-      - DB_NUM in cn=config and DB_BACKEND such as hdb,mdb needed to address entry in cn=config
+      - ldif files must be mounted, preferably in /mnt
+    change_rootpassword -b \$DB_NAME -n \$DB_NUM -e \$BACKEND -p \$PASSWORD -h \$HASHED_PASSWORD
+      - set the password for the RootDN of any database (including cn=config)
+      - DB_NAME is the dn of the root of the database
+      - alternatively, DB_NUM and DB_BACKEND reference the dn of the in cn=config,
+        such as dn: olcDatabase={2}hdb,cn=config where DB_NUM=2 and DB_BACKEND=hdb
+    bash
+      - start bash after sourcing management functions and running init_vars
+    eval
+      - run a command through eval (to substitute environment variables set in the container)
 "
 }
 
@@ -272,9 +283,7 @@ run_command() {
   source management.sh
   source tools.sh
 
-  echo "command line was $@"
   local command=$1
-  echo $command
   shift
 
   init_vars
@@ -282,23 +291,36 @@ run_command() {
 
   case "$command" in
     run)
+      ;&
+    run-server)
       run $@
       ;;
+    add_data)
+      ;&
     slapadd_data)
       init_config
       slapadd_data $@
       ;;
+    modify_config)
+      ;&
     ldapmodify_config)
       ldapmodify_config $@
       ;;
+    change_rootpassword)
+      ;&
     ldapmodify_change_rootpassword)
       ldapmodify_change_rootpassword $@
       ;;
+    add_database)
+      ;&
     ldapmodify_add_database)
       ldapmodify_add_database $@
       ;;
     bash)
       /bin/bash
+      ;;
+    eval)
+      eval "$@"
       ;;
     *)
       helptext

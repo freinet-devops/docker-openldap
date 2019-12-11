@@ -13,6 +13,113 @@ docker run -d
   -v $PWD/import_dir:/mnt
   freinet/openldap run -d -0
 
+### Run supported management commands in the container
+
+The following commands are available via the entrypoint script:
+
+####   add_data
+Add data using slapadd from a file available in the container
+
+This command has a special usage pattern. As it adds the data using slapadd, it requires the server be NOT running. To achieve the following steps are necessary:
+Prerequisite: The container running the ldap-Server must have its databases in a volume
+
+1. Stop the Container running openldap:
+
+        bash# docker stop openldap
+
+2. Run a temporary container with image on the same volumes and with the same config
+
+        bash# docker run --rm -v ./config/example:/mnt -v ldapdata:/var/lib/openldap freinet/openldap add_data -b <db_name> -l data.ldif
+
+to create the same config ad hoc from a mount on server start.
+
+or
+
+        bash# docker run --rm -v config-volume/example:/mnt -v ldapdata:/var/lib/openldap freinet/openldap add_data -b <db_name> -l data.ldif
+
+to use the same persisted config in a volume.
+
+This can be simplified if using docker-compose, because the mounts will already be available
+
+    docker-compose run --rm ldap slapadd_data -b db_name -l data.ldif
+
+3. restart the server container
+
+        bash# docker start openldap
+
+#### change_rootpassword
+When using OLC, a function change_rootpassword can be used to change the password of the databases root user:
+As this uses ldap_modify, the container does not need to be stopped.
+
+Assuming a container named 'ldap':
+
+    docker exec ldap /entrypoint.sh change_rootpassword -b cn=config -p $CLEARTEXT_PW
+    docker exec ldap /entrypoint.sh change_rootpassword -b cn=config -h $HASHED_PW
+    docker exec ldap /entrypoint.sh change_rootpassword -n 2 -b hdb -p CLEARTEXT_PW
+    docker exec ldap /entrypoint.sh change_rootpassword -n 2 -b hdb -h $HASHED_PW
+
+would all work. They generate the ldif snipped needed and run it using ldapmodify.
+
+With the second option the password needs to first be hashed using
+
+     slappasswd -s $cleartext_pw
+
+Do NOT pass the password in base64 encoding! ldapmodify->changetype:modify expects it non-encoded in the LDIF.
+This is a quirk of openldap, since other commands actually expect the password to also be base64-encoded in the LDIF.
+The image tries to work around these quirks, by always requiring you to pass in passwords hashed but not yet base64-encoded, that is, they should look something like this:
+
+{SSHA}zO9mBL1sBKDpsbXhZeXwTt2rVN24QoXS
+
+
+#### add_database
+When using OLC, a function add_database can be used to add a new database to the container and create its subfolder in $DB_DATADIR
+e.g.
+
+    docker exec ldap /entrypoint.sh add_database -b dc=directory,dc=new,dc=site -e hdb -D cn=admin,dc=directory,dc=new,dc=site -p cleartext_pw
+
+or
+
+    docker exec ldap /entrypoint.sh add_database -b dc=directory,dc=new,dc=site -e hdb -D cn=admin,dc=directory,dc=new,dc=site -h hashed_pw
+
+As with change_rootpassword, do NOT pass the password in base64 encoding!
+
+Curiously, the used tool ldapadd (which is actually ldapmodify with an LDIF with changetype:add ) DOES expect the password to be encoded in base64 in the LDIF, but the task in the entrypoint script takes care of that to reduce surprises).
+
+This will create the path for the database in /var/lib/openldap/dc=directory,dc=new,dc=site/ , and a new node in cn=config for the database, with olcRootDN and olcRootPW set accordingly. The database backend will also initialize the files.
+
+
+#### modify_config
+There is also a task modify_config, which takes a path available in the container, and recursively executes all the config files found there with ldapmodify on the cn=config database, that is, it uses the OLC mechanism.
+The bash function called is actually the same that runs during initial creation any files found in /mnt/slapd.d-ldapmodify.d/ on the first container start, when no config was found in /etc/openldap/slapd.d .
+
+### Run unsupported commands in the container
+
+#### Base docker exec usage
+
+As an example, consider an ldapsearch fpr the complete cn=config database using the local UNIX socket with the EXTERNAL authentication mechanisms
+
+    docker exec -it openldap bash -c 'ldapsearch -Y EXTERNAL -H ldapi://%2Fvar%2Frun%2Fopenldap%2Fslapd.socket -b cn=config'
+
+The correct path to the socket must be passed, and the command must be invoked in a subshell.
+
+The management and startup functions in the entrypoint script use an exported environment variable $SOCKET_URL for the url-encoded path to the socket. It also exports other variables and sources function definitions from some files. You can if you want, run these setup tasks by calling /entrypoint.sh with docker exec, and then run one of 2 commands from the main function:
+
+#### ./entrypoint.sh bash
+This will just start after it does the initializing work (setting env-variables and sourcing function definitions)
+Example:
+
+    shell_on_host# docker exec -it openldap /entrypoint.sh bash
+    bash-5.0# print_env
+       ...
+       SOCKET_URL=ldapi://%2Fvar%2Frun%2Fopenldap%2Fslapd.socket
+
+#### ./entrypoint.sh eval
+This will evaluate the command passed AFTER eval, necessary if you want to use Environment Variables you know are set in the container:
+
+    shell_on_host# docker exec -it openldap /entrypoint.sh eval 'ldapsearch -H $SOCKET_URL -Y EXTERNAL -b cn=config'
+
+This will work, because $SOCKET_URL is set in the container, because the container init code has run.
+
 ## Mounts
 Persistence:
 Mount named Volumes or bind-mounts to /etc/openldap and /var/lib/openldap
@@ -31,19 +138,22 @@ To instead use a flat slapd.conf, run the container with
   -e OLC=0
 (actually, anything but 1, "true" or "yes")
 
+Configuration using slapd.d can either be persisted (mount a volume to /etc/openldap/slapd.d )
+or recreated at each container rebuilt start (Mount it to /mnt, see below ). The config in /etc/openldap/slap.d (in the container layer) will then be recreated from what is at /mnt
+whenever the container is recreated (but not if its merely stopped and restarted.) This would mean that changes made using the OLC will not persist across container recreation.
+
 Note, however that slapd.conf is meant to be deprecated in a future release of openldap (But tools exist to transform an slapd.conf flat config into an slapd.d-config)
 
-When run with slapd.d, the container will always use an slapd.d configuration. If any other method to generate a slapd.d-config all else fails, it will be
-created from the distribution default slapd.conf
+When run with slapd.d, the container will always use an slapd.d configuration. If all else fails, it will be created from the slapd.conf that comes with the alpine package.
 
 ### slapd.d Creation
 
-The follwoing applies if OLC=1 is used
+The following applies if OLC=1 is used (default)
 
 If /etc/openldap/slapd.d exists and is not empty, the server will try to start from this config.
-This only happens if a persistent volume or bind mount is mounted to /etc/openldap/slapd.d.
+This only happens if a persistent volume or bind mount is mounted to /etc/openldap/slapd.d . This must be done if changes made using the OLC  must be persisted across container recreation.
 
-If you persist the config using a volume, you cannot modify the root Password just by setting an environment variable anymore, but you can modify it using the entrypoint script's 'ldapmodify_db_password' task/function.
+If you persist the config using a volume, you cannot modify the root Password just by setting an environment variable anymore, but you can modify it using the OLC, the easiest way would be to use the entrypoint script's 'change_rootpassword' task.
 
 The following ways to create a slapd.d are tried in order, STOPPING AT THE FIRST ONE SUCCEEDING.
 
@@ -97,9 +207,10 @@ Ldif-files meant to modify cn=config that are found in /mnt/slapd.d-ldapmodify.d
 
 This is meant to build a complex config up from a base config in steps.
 
-If slapd.d is to changed afterwards, to make sure the config is rebuildable when not persisted, the ldif files should also be put into /mnt/slapd.d-ldapmodify.d in a new subfolder with a higher index.
+It is also useful if cn=config database is exported for a cloned testserver as an slapd.d-slapadd.ldif file, the config of which needs some modifications compared to the original.
 
-This means that if slapd.d is deleted (on recreating the container or deleting a volume mounted to /etc/openldap/slad.d ), the config could be rebuilt by just starting the server. 
+If slapd.d is to changed afterwards, to make sure the config is rebuildable when not persisted, the ldif files should also be put into /mnt/slapd.d-ldapmodify.d.
+When this is done, if slapd.d is deleted (on recreating the container or deleting a volume mounted to /etc/openldap/slad.d ), the config can be rebuilt by just starting the server.
 
 The server will do this by again running the initial config creation method (see Methods 1 -4 above), then reapplying all the ldif files in /mnt/slapd.d-ldapmodify.d in order.
 
@@ -142,18 +253,9 @@ Schema files that are required by slapd.conf (whether slapd.conf is used directl
 
 If a required schema file is not found there, it will be looked for in the distribution defaults in /build/conf/dist/schema.
 
-### Database import
-
-The directories where a database will be stored are however automatically created before they are required.
-Therefore, slapd.conf or slapd.d is parsed.
-
-Automatic database import on build was removed for now.
-Tasks exist to load a database and add a new database after the server was first started.
-
 ### Example compose-yml
-An docker-compose.yml example is included.
+A docker-compose.yml example is included, together with a config/example folder to be mounted to /mnt to generate a /etc/openldap/slapd.d
 
-### Simplified Management commands
 
 Some common tasks were added as functions to the entrypoint script. Some use ldapmodify under the hood, these are meant to be run in the running ldap-server, using docker exec.
 
@@ -164,70 +266,6 @@ Others use slapadd, and are only safe to call when slapd is not running. As slap
 on the same mounts/volumes as the original container.
 
 The task names contain the tool used, so that it is clear if the server must be running or not.
-
-#### Reset db password
-When using OLC, a function ldapmodify_db_password can be used to change the password of the databases root user:
-As this uses ldap_modify, the container does not need to be stopped.
-
-Assuming a container named 'ldap':
-
-    docker exec ldap /entrypoint.sh ldapmodify_change_rootpassword -b cn=config -p $CLEARTEXT_PW
-
-OR
-
-    docker exec ldap /entrypoint.sh ldapmodify_change_rootpassword -n 2 -b hdb -h $HASHED_PW
-
-With the second option the password needs to first be hashed using
-
-     slappasswd -s $cleartext_pw
-
-Do NOT pass the password in base64 encoding! ldapmodify->changetype:modify expects it non-encoded in the LDIF.
-
-This is a quirk of openldap, since other commands actually expect the password to also be base64-encoded in the LDIF.
-
-The image tries to work around these quirks, by always requiring you to pass in passwords hashed but not yet base64-encoded, that is, they should look something like this:
-
-{SSHA}3s9gfpHf/8Y5dEKUCw/LCoXRHrvl1QB+
-
-
-#### Add new database
-When using OLC, a function ldapmodify_add_database can be used to add a new database to the container and create its subfolder in $DB_DATADIR
-
-e.g.
-
-    docker exec ldap /entrypoint.sh ldapmodify_add_database -b dc=directory,dc=new,dc=site -e hdb -D cn=admin,dc=directory,dc=new,dc=site -p cleartext_pw
-
-or
-
-    docker exec ldap /entrypoint.sh ldapmodify_add_database -b dc=directory,dc=new,dc=site -e hdb -D cn=admin,dc=directory,dc=new,dc=site -h hashed_pw
-
-As with ldapmodify_change_rootpassword, do NOT pass the password in base64 encoding!
-
-Cursiously, ldapadd ( which is actually ldapmodify with an LDIF with changetype:add ) DOES expect the password to be encoded in base64 in the LDIF, but the task in the entrypoint script takes care of that to reduce surprises).
-
-#### Import database with slapadd
-
-slapadd imports objects into a database from an LDIF file, same as ldapadd would, but it does not do so using the ldap protocol, but talking directly to the database backend. It is more efficient, but requires that the server be stopped.
-
-As slapd runs as PID1 in the container, that means the container has to be stopped.
-
-An ldif-file can be added to a database by stopping the container and thus the server, and running a temporary container on the same volumes
-
-Assuming a docker-compose service ldap:
-
-    docker-compose stop ldap
-    docker-compose run --rm ldap slapadd_data -b db_name -l data.ldif (expected to be in /mnt)
-    docker-compose start ldap
-
-OR
-
-    docker-compose stop ldap
-    docker-compose run --rm ldap slapadd_data -b db_name -l /somepath/data.ldif
-    docker-compose start ldap
-
-Please understand that to modify existing volumes from this the original data and config dir must be mounted.
-The above example achieves that by using a the same service "ldap" from a compose-file that the server was run from, but running a temporary container the is discarded after the task (using --rm ).
-
 
 ## Running the complete example
 
