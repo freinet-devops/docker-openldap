@@ -151,7 +151,7 @@ init_update_config() {
   # Only runs in init_config (when no config was found on container start)
   init_service
   echo "Starting slapd to modify config..."
-  /usr/sbin/slapd $CONF_OPT -h "ldap://$(hostname)/ $SOCKET_URL" -u ldap -g ldap $EXTRA_ARGS &
+  /usr/sbin/slapd $CONF_OPT -h "ldap:/// $SOCKET_URL" -u ldap -g ldap $EXTRA_ARGS &
   echo "waiting for server"
   sleep 3
   ldapmodify_config /mnt/slapd.d-ldapmodify.d
@@ -240,7 +240,7 @@ start_service()
     EXTRA_ARGS="-d 0"
   fi
   echo "Starting slapd..."
-  exec /usr/sbin/slapd $CONF_OPT -h "ldap://$(hostname)/ $SOCKET_URL" -u ldap -g ldap $EXTRA_ARGS
+  exec /usr/sbin/slapd $CONF_OPT -h "ldap:/// $SOCKET_URL" -u ldap -g ldap $EXTRA_ARGS
 }
 
 run(){
